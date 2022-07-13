@@ -100,7 +100,7 @@ async def db_on_startup():
 async def process_sum(message: types.Message, state: FSMContext):
     """Gets the amount of money for payment and creates bill with it as parameter"""
     msg_from_id = message.from_id
-    new_bill = await p2p.bill(bill_id=str(uuid.uuid5(uuid.NAMESPACE_X500, str(msg_from_id))),
+    new_bill = await p2p.bill(bill_id=str(uuid.uuid4()),  # or uuid5 with salt
                               amount=message.text, lifetime=5)
     async with state.proxy() as payment_data:
         payment_data['amount'] = int(message.text)
