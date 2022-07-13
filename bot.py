@@ -1,12 +1,14 @@
+"""Single-file bot script for accepting payments with QIWI"""
+
 import uuid
 
 import asyncpg
+from aiogram import Bot, Dispatcher, types
 from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.utils import executor
 from environs import Env
-from aiogram import Bot, Dispatcher, types
 from pyqiwip2p import AioQiwiP2P
 
 env = Env()
@@ -30,7 +32,8 @@ async def start_conversation(message: types.Message):
     Нажмите на кнопку, чтобы пополнить баланс'''
     pay_inline_mu = types.InlineKeyboardMarkup().add(
         types.InlineKeyboardButton("Пополнить баланс", callback_data='pay_cb_data'))
-    application_to_user = message.from_user.username if message.from_user.username else 'пользователь'
+    application_to_user = message.from_user.username if message.from_user.username\
+        else 'пользователь'
     await message.reply(message_to_user.format(
         application_to_user), reply_markup=pay_inline_mu)
 
@@ -38,7 +41,7 @@ async def start_conversation(message: types.Message):
 @dp.message_handler(commands=['admin'])
 async def admin_handler(message: types.Message):
     """Admin entry point"""
-    ...
+    await message.reply('Реализация не за горами')
 
 
 class Payment(StatesGroup):
@@ -72,10 +75,12 @@ async def db_on_startup():
     """Checks payments table in database, introduced in
     DSN variable of .env file"""
     conn = await asyncpg.connect(DSN)
-    on_start_query = """CREATE TABLE IF NOT EXISTS 
+    on_start_query = """CREATE TABLE IF NOT EXISTS
          clients(user_id BIGINT UNIQUE, amount INTEGER)"""
-    await conn.execute(on_start_query)
-    await conn.close()
+    try:
+        await conn.execute(on_start_query)
+    finally:
+        await conn.close()
 
 
 @dp.message_handler(lambda message: message.text.isdigit(), state=Payment.payment_amount)
@@ -96,11 +101,11 @@ async def process_sum(message: types.Message, state: FSMContext):
 
 
 @dp.callback_query_handler(text='check_qiwi')
-async def check_qiwi(cb: types.CallbackQuery, state: FSMContext):
+async def check_qiwi(cb_query: types.CallbackQuery, state: FSMContext):
     """On `PAID` button click checks the pyament status through
     qiwi p2p api and handles the result"""
-    await cb.answer('Проверка оплаты')
-    user_id = cb.from_user.id
+    await cb_query.answer('Проверка оплаты')
+    user_id = cb_query.from_user.id
     async with state.proxy() as payment_data:
         bill_id = payment_data['bill_id']
     payment_status = (await p2p.check(bill_id=bill_id)).status
@@ -112,6 +117,7 @@ async def check_qiwi(cb: types.CallbackQuery, state: FSMContext):
                 bill_amount = payment_data['amount']
                 await write_payment(user_id, bill_amount)
             await state.finish()
+            await bot.send_message(user_id, 'Оплата успешно обработана!')
         case 'REJECTED':
             await bot.send_message(user_id, "Платёж отменён")
             await state.finish()
@@ -122,7 +128,7 @@ async def check_qiwi(cb: types.CallbackQuery, state: FSMContext):
 
 
 @dp.message_handler(lambda message: not message.text.isdigit(), state=Payment.payment_amount)
-async def process_sum_invalid(message: types.Message, state: FSMContext):
+async def process_sum_invalid(message: types.Message, _: FSMContext):
     """Works in case of incorrect unprocessable data for ayment"""
     return await message.reply('Cумма должна быть числом\nВведите сумму, '
                                'на которую вы хотите пополнить баланс')
