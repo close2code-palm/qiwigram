@@ -1,6 +1,7 @@
 import uuid
 
 import asyncpg
+from aiogram.contrib.fsm_storage.memory import MemoryStorage
 from aiogram.dispatcher import FSMContext
 from aiogram.dispatcher.filters.state import StatesGroup, State
 from aiogram.utils import executor
@@ -15,7 +16,9 @@ TG_API_KEY = env.str('TG_API_KEY')
 QIWI_KEY = env.str('QIWI_KEY')
 
 bot = Bot(token=TG_API_KEY)
-dp = Dispatcher(bot)
+storage = MemoryStorage()
+
+dp = Dispatcher(bot, storage=storage)
 
 p2p = AioQiwiP2P(auth_key=QIWI_KEY)
 
@@ -23,8 +26,8 @@ p2p = AioQiwiP2P(auth_key=QIWI_KEY)
 @dp.message_handler(commands=['start'])
 async def start_conversation(message: types.Message):
     """Client conversation entry point"""
-    message_to_user = '''Привет, {}!\n\nЯ - бот для пополнения баланса. 
-        Нажмите на кнопку, чтобы пополнить баланс'''
+    message_to_user = '''Привет, {}!\n\nЯ - бот для пополнения баланса.
+    Нажмите на кнопку, чтобы пополнить баланс'''
     pay_inline_mu = types.InlineKeyboardMarkup().add(
         types.InlineKeyboardButton("Пополнить баланс", callback_data='pay_cb_data'))
     application_to_user = message.from_user.username if message.from_user.username else 'пользователь'
@@ -81,7 +84,7 @@ async def process_sum(message: types.Message, state: FSMContext):
     async with state.proxy() as payment_data:
         payment_data['amount'] = int(message.text)
         payment_data['bill_id'] = new_bill.bill_id
-    await state.finish()
+    await Payment.next()
     payment_created_kb = types.InlineKeyboardMarkup().add(
         types.InlineKeyboardButton("Перейти к оплате", url=f'{new_bill.pay_url}')
     ).add(
@@ -96,21 +99,26 @@ async def check_qiwi(cb: types.CallbackQuery, state: FSMContext):
     qiwi p2p api and handles the result"""
     await cb.answer('Проверка оплаты')
     user_id = cb.from_user.id
-    async with state.proxy as payment_data:
+    async with state.proxy() as payment_data:
         bill_id = payment_data['bill_id']
     payment_status = (await p2p.check(bill_id=bill_id)).status
+    print(payment_status)
+    print(type(payment_status))
     match payment_status:
-        case ['WAITING']:
+        case 'WAITING':
             await bot.send_message(user_id, "Сервис ожидает оплату")
-        case ['PAID']:
+        case 'PAID':
             async with state.proxy() as payment_data:
                 bill_amount = payment_data['amount']
-            await write_payment(user_id, bill_amount)
-        case ['REJECTED']:
+                await write_payment(user_id, bill_amount)
+            await state.finish()
+        case 'REJECTED':
             await bot.send_message(user_id, "Платёж отменён")
-        case ['EXPIRED']:
+            await state.finish()
+        case 'EXPIRED':
             await bot.send_message(user_id,
                                    'Срок действия платежа истёк')
+            await state.finish()
 
 
 @dp.message_handler(lambda message: not message.text.isdigit(), state=Payment.payment_amount)
