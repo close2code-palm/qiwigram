@@ -42,11 +42,13 @@ async def admin_handler(message: types.Message):
 
 
 class Payment(StatesGroup):
+    """Dataclass for state machine"""
     payment_amount = State()
 
 
 @dp.callback_query_handler(text='pay_cb_data')
 async def inline_btn_cb_handler(query: types.CallbackQuery):
+    """`Пополнить баланс` callback handler, inits state machine"""
     await query.answer('Формируем заявку...')
     await Payment.payment_amount.set()
     await bot.send_message(query.from_user.id,
@@ -102,8 +104,6 @@ async def check_qiwi(cb: types.CallbackQuery, state: FSMContext):
     async with state.proxy() as payment_data:
         bill_id = payment_data['bill_id']
     payment_status = (await p2p.check(bill_id=bill_id)).status
-    print(payment_status)
-    print(type(payment_status))
     match payment_status:
         case 'WAITING':
             await bot.send_message(user_id, "Сервис ожидает оплату")
@@ -123,10 +123,11 @@ async def check_qiwi(cb: types.CallbackQuery, state: FSMContext):
 
 @dp.message_handler(lambda message: not message.text.isdigit(), state=Payment.payment_amount)
 async def process_sum_invalid(message: types.Message, state: FSMContext):
+    """Works in case of incorrect unprocessable data for ayment"""
     return await message.reply('Cумма должна быть числом\nВведите сумму, '
                                'на которую вы хотите пополнить баланс')
 
 
 if __name__ == '__main__':
-    executor.start(dp, db_on_startup())
+    executor.start(dp, db_on_startup())  # Checks database
     executor.start_polling(dp, skip_updates=True)
