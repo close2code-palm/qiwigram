@@ -1,4 +1,4 @@
-Test task with pyQiwiP2P, aiogram and asyncpg
+Test task with python3.10, used libriries: pyQiwiP2P, aiogram and asyncpg
 To run this:
 - git clone
 - py -m venv venv
